@@ -7,6 +7,7 @@ import offer_utils as ou
 import json
 import argparse
 import numpy as np
+from pyomo.environ import *
 
 class MakeOffer:
     """Used to store status and forecast info and make an offer"""
