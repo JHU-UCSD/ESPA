@@ -2,21 +2,36 @@ from pyomo.environ import *
 import numpy as np
 import pandas as pd
 
-def da_offers(prices_forecast,bus_value,initial_energy):
-    #################################################### Changable Parameters #######################################################
-    #################################################################################################################################
+def da_offers(prices_forecast,initial_energy,bus_value,rid):
+
+    #################################################### Adjustable Parameters #######################################################
+    if rid == 'R00233' and bus_value == 'CIPV':
+        replacement_cost =  1.5e+5
+        CVar_risk_weight = 0.5
+        periodicity_constraint = True
+    elif rid == 'R00235' and bus_value == 'NEVP':
+        replacement_cost =  1.75e+5
+        CVar_risk_weight = 0.8
+        periodicity_constraint = True
+    elif rid == 'R00236' and bus_value == 'NEVP':
+        replacement_cost =  2e+5
+        CVar_risk_weight = 0.2
+        periodicity_constraint = False
+    else:
+        replacement_cost =  1.5e+5
+        CVar_risk_weight = 0.5
+        periodicity_constraint = True
+
     # number of newly generated scenarios
     num_scenario= 14
 
     # number of segments for degradation cost
     num_segments = 10          
 
-    # risk_attitute
-    CVar_risk_weight = 0.5
+    # chance constraint satisfication rate
     sigma_val = 0.95
 
     #################################################### Scenario Generation ########################################################
-    #################################################################################################################################
     # Read historical price data from .csv file
     historical_price = pd.read_csv('full_year_lmps.csv')
     n_days = 364
@@ -65,7 +80,6 @@ def da_offers(prices_forecast,bus_value,initial_energy):
     bin_df = pd.DataFrame(bin_data)
 
     ######################################################## Battery Parameters #####################################################
-    #################################################################################################################################
     num_instance = len(prices[0])  # Update number of periods based on the length of price
     num_periods = len(prices)  # Update number of periods based on the length of price
     SoC_min = 0
@@ -73,9 +87,10 @@ def da_offers(prices_forecast,bus_value,initial_energy):
     b_1 = 5.24e-4
     b_2 = 2.03
     eta = 0.946             # Round-trip efficiency
+    Crep =  replacement_cost/eta  # Replacement cost of battery
+    # Crep =  (1.5e+5)* (1/eta)  # Replacement cost of bettery
     eta_ch = 0.892             # charging efficiency
     eta_dis = 1             # discharging efficiency
-    Crep =  (1.5e+5)* (1/eta)  # Replacement cost of bettery
     storage_capacity = 640  # Example value, adjust as needed
     duration = 4            # maximum duration for battery to charge and discharge completely
     max_power = 125  # Maximum power is normalized to 1
@@ -105,7 +120,6 @@ def da_offers(prices_forecast,bus_value,initial_energy):
         initial_soc_vector_ch[last_zero_index_ch] = initial_SOC* num_segments - int(initial_SOC* num_segments)
 
     ################################################### Degradation Penalty Function ################################################
-    #################################################################################################################################
     # Caculation of piecewise linear costs 
     # Define the phi function
     def phi(del_val):
@@ -126,7 +140,6 @@ def da_offers(prices_forecast,bus_value,initial_energy):
     costs_discharge_segment = [x * Crep for x in costs_discharge_segment_norm]
 
     #################################################### Profit Optimization Model ##################################################
-    #################################################################################################################################
     # Create a model
     model = ConcreteModel()
 
@@ -198,9 +211,9 @@ def da_offers(prices_forecast,bus_value,initial_energy):
     # State of Charge evolution
     def soc_evolution_rule_disch(model, s, t, i):
         if t == 1:
-            return model.SoC_disch[s, t, i] == initial_soc_vector_disch[s-1] + model.segment_charge_power_disch[s, t, i] - model.segment_discharge_power_disch[s, t, i]
+            return model.SoC_disch[s, t, i] == initial_soc_vector_disch[s-1] + model.segment_charge_power_disch[s, t, i]*eta_ch - model.segment_discharge_power_disch[s, t, i]/eta_dis
         else:
-            return model.SoC_disch[s, t, i] == model.SoC_disch[s, t-1, i] + model.segment_charge_power_disch[s, t, i] - model.segment_discharge_power_disch[s, t, i]
+            return model.SoC_disch[s, t, i] == model.SoC_disch[s, t-1, i] + model.segment_charge_power_disch[s, t, i]*eta_ch - model.segment_discharge_power_disch[s, t, i]/eta_dis
 
     model.soc_evolution_constraint_disch = Constraint(model.segments, model.periods, model.instance, rule=soc_evolution_rule_disch)
 
@@ -225,16 +238,17 @@ def da_offers(prices_forecast,bus_value,initial_energy):
     # Constraint ensuring SoC at the last time period is same as initial SoC
     def final_soc_constraint_rule_disch(model, s, i):
         return model.SoC_aggregate_disch[num_periods, i] == initial_SOC*storage_capacity 
-
-    model.final_soc_constraint_disch = Constraint(model.segments, model.instance, rule=final_soc_constraint_rule_disch)
+    
+    if periodicity_constraint:
+        model.final_soc_constraint_disch = Constraint(model.segments, model.instance, rule=final_soc_constraint_rule_disch)
 
     ######################################### CONSTRAINTS CHARGE ########################################
     # State of Charge evolution
     def soc_evolution_rule_ch(model, s, t, i):
         if t == 1:
-            return model.SoC_ch[s, t, i] == initial_soc_vector_ch[s-1] + model.segment_charge_power_ch[s, t, i] - model.segment_discharge_power_ch[s, t, i]
+            return model.SoC_ch[s, t, i] == initial_soc_vector_ch[s-1] + model.segment_charge_power_ch[s, t, i]*eta_ch - model.segment_discharge_power_ch[s, t, i]/eta_dis
         else:
-            return model.SoC_ch[s, t, i] == model.SoC_ch[s, t-1, i] + model.segment_charge_power_ch[s, t, i] - model.segment_discharge_power_ch[s, t, i]
+            return model.SoC_ch[s, t, i] == model.SoC_ch[s, t-1, i] + model.segment_charge_power_ch[s, t, i]*eta_ch - model.segment_discharge_power_ch[s, t, i]/eta_dis
 
     model.soc_evolution_constraint_ch = Constraint(model.segments, model.periods, model.instance, rule=soc_evolution_rule_ch)
 
@@ -256,10 +270,10 @@ def da_offers(prices_forecast,bus_value,initial_energy):
 
     # Constraint ensuring SoC at the last time period is same as initial SoC
     def final_soc_constraint_rule_ch(model, s, i):
-        # return model.SoC_ch[s, num_periods] == initial_soc_vector_ch[s-1]
         return model.SoC_aggregate_ch[num_periods, i] == initial_SOC*storage_capacity 
-
-    model.final_soc_constraint_ch = Constraint(model.segments, model.instance, rule=final_soc_constraint_rule_ch)
+    
+    if periodicity_constraint:
+        model.final_soc_constraint_ch = Constraint(model.segments, model.instance, rule=final_soc_constraint_rule_ch)
 
     #################### Link charge part and discharge part ##########################
     def link_charge_power_in_two_parts(model, t, i):
@@ -317,7 +331,6 @@ def da_offers(prices_forecast,bus_value,initial_energy):
                 variables["SoC_Ch"].append(value(model.SoC_ch[s, t, i]))
 
     ########################################### Post analysis for offer curve generation ############################################
-    #################################################################################################################################
     prob_matrix = [prob_instance for _ in range(num_periods)]
 
     values_list_dis = []
@@ -345,7 +358,6 @@ def da_offers(prices_forecast,bus_value,initial_energy):
     df_reshaped_dis_value = pd.DataFrame(reshaped_dis_value)
     df_reshaped_ch_value = pd.DataFrame(reshaped_ch_value)
 
-    prices_array = np.array(prices)
     assigned_data = []
 
     # Iterate through each price value and its index
@@ -513,7 +525,6 @@ def da_offers(prices_forecast,bus_value,initial_energy):
     chvalue_df = chvalue_df.drop(columns=['DisValue'])
 
     ####################################### Final offer curve modification for Discharge offer curve ################################
-    #################################################################################################################################
     modified_disvalue_df = pd.DataFrame()
 
     # Iterate through each unique period
@@ -556,13 +567,8 @@ def da_offers(prices_forecast,bus_value,initial_energy):
     modified_disvalue_df = modified_disvalue_df.drop(columns=['Modified_DisValue'])
     modified_disvalue_df = modified_disvalue_df.drop(columns=['BinStart'])
     modified_disvalue_df = modified_disvalue_df.rename(columns={'BinEnd': 'Price'})
-            
-    # Save the modified DisValue DataFrame to a new file
-    # modified_disvalue_df.to_excel('Discharge_offers.xlsx', index=False)
 
     ####################################### Final offer curve modification for Charge offer curve ###################################
-    #################################################################################################################################
-
     chvalue_df.drop(columns=['BinEnd'], inplace=True)
 
     # Sort the DataFrame in descending order of "BinStart" for each period
@@ -613,8 +619,5 @@ def da_offers(prices_forecast,bus_value,initial_energy):
         modified_chvalue_df = pd.concat([modified_chvalue_df, period_df])
 
     modified_chvalue_df = modified_chvalue_df.drop(columns=['Modified_ChValue'])
-
-    # Save the modified ChValue DataFrame to a new file
-    # modified_chvalue_df.to_excel('Charge_Offers.xlsx', index=False)
 
     return modified_disvalue_df, modified_chvalue_df
