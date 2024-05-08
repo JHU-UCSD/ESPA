@@ -6,19 +6,19 @@ def da_offers(prices_forecast,initial_energy,bus_value,rid):
 
     #################################################### Adjustable Parameters #######################################################
     if rid == 'R00233' and bus_value == 'CIPV':
-        replacement_cost =  2.5e+5
+        replacement_cost =  3.5e+5
         CVar_risk_weight = 0.5
         periodicity_constraint = True
     elif rid == 'R00235' and bus_value == 'NEVP':
-        replacement_cost =  3e+5
+        replacement_cost =  4e+5
         CVar_risk_weight = 0.8
         periodicity_constraint = True
     elif rid == 'R00236' and bus_value == 'NEVP':
-        replacement_cost =  2e+5
+        replacement_cost =  4.5e+5
         CVar_risk_weight = 0.2
         periodicity_constraint = False
     else:
-        replacement_cost =  2.5e+5
+        replacement_cost =  4.5e+5
         CVar_risk_weight = 0.5
         periodicity_constraint = True
 
