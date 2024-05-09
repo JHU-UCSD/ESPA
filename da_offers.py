@@ -14,11 +14,11 @@ def da_offers(prices_forecast,initial_energy,bus_value,rid):
         CVar_risk_weight = 0.8
         periodicity_constraint = True
     elif rid == 'R00236' and bus_value == 'NEVP':
-        replacement_cost =  4.75e+5
+        replacement_cost =  4.25e+5
         CVar_risk_weight = 0.2
         periodicity_constraint = False
     else:
-        replacement_cost =  3.75e+5
+        replacement_cost =  4e+5
         CVar_risk_weight = 0.5
         periodicity_constraint = True
 
